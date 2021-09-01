@@ -46,6 +46,8 @@ func main() {
 	http.HandleFunc("/books/show", booksShow)
 	http.HandleFunc("/books/create", booksCreateForm)
 	http.HandleFunc("/books/create/process", booksCreateProcess)
+	http.HandleFunc("/books/update", booksUpdateForm)
+	http.HandleFunc("/books/update/process", booksUpdateProcess)
 	http.Handle("/favicon.ico", http.NotFoundHandler())
 	http.ListenAndServe(":8080", nil)
 }
@@ -155,4 +157,68 @@ func booksCreateProcess(w http.ResponseWriter, r *http.Request) {
 
 	// confirm insertion
 	tpl.ExecuteTemplate(w, "created.gohtml", bk)
+}
+
+func booksUpdateForm(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		return
+	}
+
+	isbn := r.FormValue("isbn")
+	if isbn == "" {
+		http.Error(w, http.StatusText(400), http.StatusBadRequest)
+		return
+	}
+
+	row := db.QueryRow("SELECT * FROM books WHERE isbn = $1", isbn)
+
+	bk := Book{}
+	err := row.Scan(&bk.isbn, &bk.title, &bk.author, &bk.price)
+	switch {
+	case err == sql.ErrNoRows:
+		http.NotFound(w, r)
+		return
+	case err != nil:
+		http.Error(w, http.StatusText(500), http.StatusInternalServerError)
+		return
+	}
+
+	tpl.ExecuteTemplate(w, "update.gohtml", bk)
+}
+
+func booksUpdateProcess(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		return
+	}
+
+	// get form values
+	bk := Book{}
+	bk.isbn = r.FormValue("isbn")
+	bk.title = r.FormValue("title")
+	bk.author = r.FormValue("author")
+	p := r.FormValue("price")
+
+	// validate form values
+	if bk.isbn == "" || bk.title == "" || bk.author == "" || p == "" {
+		http.Error(w, http.StatusText(400), http.StatusBadRequest)
+		return
+	}
+
+	f64, err := strconv.ParseFloat(p, 32)
+	if err != nil {
+		http.Error(w, http.StatusText(http.StatusNotAcceptable), http.StatusNotAcceptable)
+		return
+	}
+	bk.price = float32(f64)
+
+	// update values
+	_, err = db.Exec("UPDATE books SET isbn=$1, title=$2, author=$3, price=$4 WHERE isbn=$1", bk.isbn, bk.title, bk.author, bk.price)
+	if err != nil {
+		http.Error(w, http.StatusText(500), http.StatusInternalServerError)
+		return
+	}
+
+	tpl.ExecuteTemplate(w, "updated.gohtml", bk)
 }
